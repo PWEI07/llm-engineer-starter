@@ -10,13 +10,13 @@ from src.reranker import BgeRerank
 
 class RAG(object):
     def __init__(self, vectordb, k=10,
-                 llm=r'/Users/peter_zirui_wei/PycharmProjects/llama.cpp/models/mistral-7b-instruct-v0.1.Q4_K_M.gguf',
-                 embedding_model='BAAI/bge-large-en-v1.5'):
+                 llm_path=r'/Users/peter_zirui_wei/PycharmProjects/llama.cpp/models/mistral-7b-instruct-v0.1.Q4_K_M.gguf',
+                 embedding_model='BAAI/bge-large-en-v1.5', *args, **kwargs):
         self.retriever = vectordb.as_retriever(search_kwargs={"k": k})
         self.embedding_function = SentenceTransformerEmbeddings(model_name=embedding_model)
 
         self.llm = LlamaCpp(
-            model_path=llm,
+            model_path=llm_path,
             temperature=0,
             max_tokens=200,
             n_gpu_layers=-1,

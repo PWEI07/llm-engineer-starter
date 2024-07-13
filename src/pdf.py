@@ -1,124 +1,104 @@
-import mimetypes
-import os
 from pathlib import Path
-import PyPDF2
-import tempfile
 import dotenv
+from langchain_community.embeddings import SentenceTransformerEmbeddings
+from unstructured.partition.pdf import partition_pdf
 
-from google.api_core.client_options import ClientOptions
-from google.cloud import documentai
-from google.cloud.documentai_v1 import Document
-
-# Load Env Files.
-# This will return True if your env vars are loaded successfully
 dotenv.load_dotenv()
+from langchain.docstore.document import Document
+from langchain_community.vectorstores import Chroma
+import os
+
 
 class DocumentAI:
-    # def __init__(self) -> None:
-    #     # Set endpoint to EU
-    #     options = ClientOptions(api_endpoint="eu-documentai.googleapis.com:443")
-    #
-    #     # Instantiate a client
-    #     self.client = documentai.DocumentProcessorServiceClient(client_options=options)
-    #
-    #     # Set up the processor name
-    #     project_id = os.getenv("GCP_PROJECT_ID")
-    #     location = "eu"  # Assuming EU location based on the endpoint
-    #     processor_id = os.getenv("GCP_PROCESSOR_ID")
-    #     self.processor_name = f"projects/{project_id}/locations/{location}/processors/{processor_id}"
-
-    """Wrapper class around GCP's DocumentAI API."""
-    def __init__(self) -> None:
-
-        self.client_options = ClientOptions(  # type: ignore
-            api_endpoint=f"{os.getenv('GCP_REGION')}-documentai.googleapis.com",
-            credentials_file=os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
-        )
-        self.client = documentai.DocumentProcessorServiceClient(client_options=self.client_options)
-        self.processor_name = self.client.processor_path(
-            os.getenv("GCP_PROJECT_ID"),
-            os.getenv("GCP_REGION"),
-            os.getenv("GCP_PROCESSOR_ID")
-        )
-
-    def split_pdf(self, file_path: Path, max_pages: int = 15):
-        temp_dir = tempfile.mkdtemp()
-        split_pdfs = []
-
-        with open(file_path, 'rb') as file:
-            pdf_reader = PyPDF2.PdfReader(file)
-            total_pages = len(pdf_reader.pages)
-
-            for start in range(0, total_pages, max_pages):
-                end = min(start + max_pages, total_pages)
-                output = PyPDF2.PdfWriter()
-
-                for page in range(start, end):
-                    output.add_page(pdf_reader.pages[page])
-
-                split_file = Path(temp_dir) / f"split_{start + 1}_{end}.pdf"
-                with open(split_file, "wb") as output_file:
-                    output.write(output_file)
-
-                split_pdfs.append(split_file)
-
-        return split_pdfs
-    def process_document(self, file_path: Path) -> documentai.Document:
-        with open(file_path, "rb") as file:
-            content = file.read()
-
-        mime_type = mimetypes.guess_type(file_path)[0]
-        raw_document = documentai.RawDocument(content=content, mime_type=mime_type)
-        # document = {"content": content, "mime_type": mime_type}
-        request = documentai.ProcessRequest(
-            name=self.processor_name,
-            raw_document=raw_document
-        )
-        result = self.client.process_document(request=request)
-        return result.document
+    def __init__(self, embedding_model='BAAI/bge-large-en-v1.5'):
+        self.embedding_model = embedding_model
+        self.embedding_function = SentenceTransformerEmbeddings(model_name=self.embedding_model)
 
     def __call__(self, file_path: Path):
-        split_pdfs = self.split_pdf(file_path)
-        processed_documents = []
+        elements = partition_pdf(file_path, strategy="ocr_only")
+        layout_result = generate_layout_string(elements)
+        print(layout_result)
+        return (layout_result, elements, elements[0].metadata.coordinates.system.width,
+                elements[0].metadata.coordinates.system.height)
 
-        for pdf in split_pdfs:
-            try:
-                processed_document = self.process_document(pdf)
-                processed_documents.append(processed_document)
-            except Exception as e:
-                print(f"Error processing {pdf}: {str(e)}")
+    def build_vector_db(self, elements, persist_directory=r'data/vector_db_inpatient', *args, **kwargs):
+        if os.path.exists(persist_directory):
+            return Chroma(persist_directory=persist_directory, embedding_function=self.embedding_function)
 
-        # Clean up temporary files
-        for pdf in split_pdfs:
-            pdf.unlink()
-        os.rmdir(os.path.dirname(split_pdfs[0]))
+        vectordb = Chroma(persist_directory=persist_directory, embedding_function=self.embedding_function)
+        for element in elements:
+            vectordb.add_documents([Document(
+                page_content=element.text,
+                metadata={
+                    "page": element.metadata.page_number,
+                    "coordinates": ','.join([str(x) for x in element.metadata.coordinates.points]),
+                }
+            )])
+        return vectordb
 
-        return processed_documents
 
-    # def __call__(self, file_path: Path) -> Document:
-    #     """Convert a local PDF into a GCP document. Performs full OCR extraction and layout parsing."""
-    #
-    #     # Read the file into memory
-    #     with open(file_path, "rb") as file:
-    #         content = file.read()
-    #
-    #     mime_type = mimetypes.guess_type(file_path)[0]
-    #     raw_document = documentai.RawDocument(content=content, mime_type=mime_type)
-    #
-    #     # Configure the process request
-    #     request = documentai.ProcessRequest(
-    #         name=self.processor_name,
-    #         raw_document=raw_document
-    #     )
-    #
-    #     result = self.client.process_document(request=request)
-    #     document = result.document
-    #
-    #     return document
+def generate_layout_string(elements, output_file_path='layout_output.txt'):
+    # Group elements by page number
+    pages = {}
+    for element in elements:
+        page_num = element.metadata.page_number
+        if page_num not in pages:
+            pages[page_num] = []
+        pages[page_num].append(element)
+
+    # Find the maximum coordinates across all pages
+    max_x = max(max(max(coord[0] for coord in element.metadata.coordinates.points) for element in page) for page in
+                pages.values())
+    max_y = max(max(max(coord[1] for coord in element.metadata.coordinates.points) for element in page) for page in
+                pages.values())
+
+    # Create a canvas for the entire document
+    scale_factor = 1  # Adjust this value to change the compactness
+    canvas_width = int(max_x * scale_factor) + 1
+    canvas_height = int(max_y * scale_factor) * len(pages) + len(pages)  # Add space for page separators
+    canvas = [[' ' for _ in range(canvas_width)] for _ in range(canvas_height)]
+
+    full_layout = ""
+    y_offset = 0
+
+    for page_num in sorted(pages.keys()):
+        page_elements = pages[page_num]
+
+        # Add page separator
+        separator = f"--- Page {page_num} ---"
+        start_x = (canvas_width - len(separator)) // 2
+        for i, char in enumerate(separator):
+            canvas[y_offset][start_x + i] = char
+        y_offset += 1
+
+        # Place each element on the canvas
+        for element in page_elements:
+            text = element.text
+            x, y = element.metadata.coordinates.points[0]  # Using top-left corner as anchor point
+
+            # Place each character of the text
+            for i, char in enumerate(text):
+                canvas_x = int(x * scale_factor) + i
+                canvas_y = int(y * scale_factor) + y_offset
+                if 0 <= canvas_x < canvas_width and 0 <= canvas_y < canvas_height:
+                    canvas[canvas_y][canvas_x] = char
+
+        # Update y_offset for the next page
+        y_offset += int(max_y * scale_factor) + 1
+
+    # Convert the canvas to a string
+    full_layout = '\n'.join(''.join(row).rstrip() for row in canvas).strip()
+
+    # Write the full layout string to a file
+    with open(output_file_path, 'w', encoding='utf-8') as file:
+        file.write(full_layout)
+
+    return full_layout
 
 
 if __name__ == '__main__':
-
     # Example Usage
     document_ai = DocumentAI()
-    document = document_ai(Path("data/inpatient_record.pdf"))
+    path = r'"data/inpatient_record.pdf"'
+    # path = r'/Users/peter_zirui_wei/Downloads/inpatient_record-pages-1.pdf'
+    document = document_ai(Path(path))
