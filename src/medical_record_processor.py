@@ -5,7 +5,14 @@ import re
 import hashlib
 import os
 
+START_DATE = datetime(2020, 1, 1)
+END_DATE = datetime(2024, 4, 2)
 
+def parse_date(date_str):
+    return datetime.strptime(date_str, '%m/%d/%Y')
+def is_valid_date(date_str):
+    date = parse_date(date_str)
+    return datetime(2020, 1, 1) < date < datetime(2024, 4, 2)
 class MedicalRecordProcessor:
     def __init__(self, documents):
         self.documents = documents
@@ -26,7 +33,7 @@ class MedicalRecordProcessor:
         for page_number, page in self.pages:
             try:
                 page_text = self.get_page_text(page)
-                date_matches = re.finditer(r'\b(\d{1,2}/\d{1,2}/\d{4})\b', page_text)
+                date_matches = list(re.finditer(r'\b(\d{1,2}/\d{1,2}/\d{4})\b', page_text))
                 for match in date_matches:
                     date = match.group(1)
                     start_pos = match.start()
