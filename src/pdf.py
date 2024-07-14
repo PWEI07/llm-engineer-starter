@@ -1,12 +1,14 @@
 from io import BytesIO
 from pathlib import Path
-import dotenv
 from langchain_community.embeddings import SentenceTransformerEmbeddings
 from reportlab.lib.colors import red
 from reportlab.pdfgen import canvas
 from unstructured.partition.pdf import partition_pdf
 from collections import defaultdict
 from PyPDF2 import PdfReader, PdfWriter, PdfMerger
+from langchain.docstore.document import Document
+from langchain_community.vectorstores import Chroma
+import os
 
 
 def create_annotated_pdf(path_to_case_pdf, query, sources, output_folder, width, height):
@@ -72,10 +74,7 @@ def create_annotated_pdf(path_to_case_pdf, query, sources, output_folder, width,
 
     print(f"Annotated PDF saved as: {output_path}")
     return output_path
-dotenv.load_dotenv()
-from langchain.docstore.document import Document
-from langchain_community.vectorstores import Chroma
-import os
+
 
 class DocumentAI:
     def __init__(self, embedding_model='BAAI/bge-large-en-v1.5'):
@@ -104,70 +103,6 @@ class DocumentAI:
             )])
         return vectordb
 
-
-def create_annotated_pdf(path_to_case_pdf, query, sources, output_folder, width, height):
-    reader = PdfReader(path_to_case_pdf)
-
-    # Group sources by page
-    sources_by_page = defaultdict(list)
-    for source in sources:
-        sources_by_page[source.metadata['page']].append(source)
-
-    annotated_pages = []
-    idx = 0
-    for page_number, page_sources in sources_by_page.items():
-        page = reader.pages[page_number - 1]  # PDF page index starts at 0
-        page_width = float(page.mediabox.width)
-        page_height = float(page.mediabox.height)
-        scale_x = page_width / width
-        scale_y = page_height / height
-
-        output = PdfWriter()
-        output.add_page(page)
-
-        packet = BytesIO()
-        can = canvas.Canvas(packet, pagesize=(page_width, page_height))
-        can.setStrokeColor(red)
-        can.setFillColor(red)
-
-        for _, source in enumerate(page_sources):
-            coordinates = eval(source.metadata['coordinates'])
-            x1, y1 = coordinates[0]
-            x2, y2 = coordinates[2]
-
-            x1_scaled = x1 * scale_x
-            y1_scaled = y1 * scale_y
-            x2_scaled = x2 * scale_x
-            y2_scaled = y2 * scale_y
-
-            can.rect(x1_scaled, page_height - y2_scaled, x2_scaled - x1_scaled, y2_scaled - y1_scaled, stroke=1, fill=0)
-            can.setFont("Helvetica", 12)
-            can.drawString(x1_scaled, page_height - y1_scaled - 32, f"Question: {query} (Source {idx + 1})")
-            idx += 1
-        can.save()
-        packet.seek(0)
-        new_pdf = PdfReader(packet)
-        page.merge_page(new_pdf.pages[0])
-
-        temp_output = BytesIO()
-        output.write(temp_output)
-        temp_output.seek(0)
-        annotated_pages.append(temp_output)
-
-    # Merge all annotated pages
-    merger = PdfMerger()
-    for page in annotated_pages:
-        merger.append(page)
-
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
-    output_path = os.path.join(output_folder, f"{query}.pdf")
-
-    with open(output_path, "wb") as output_file:
-        merger.write(output_file)
-
-    print(f"Annotated PDF saved as: {output_path}")
-    return output_path
 
 def generate_layout_string(elements, file_path, layout_output_file_path='layout_output.txt', *args, **kwargs):
     # Group elements by page number

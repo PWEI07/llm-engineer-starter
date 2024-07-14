@@ -4,7 +4,6 @@ from langchain_community.document_transformers import EmbeddingsRedundantFilter
 from langchain_community.embeddings import SentenceTransformerEmbeddings
 from langchain_community.llms import LlamaCpp
 from langchain.chains import RetrievalQA
-
 from src.reranker import BgeRerank
 
 
