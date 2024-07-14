@@ -13,7 +13,7 @@ import os
 
 def create_annotated_pdf(path_to_case_pdf, query, sources, output_folder, width, height):
     reader = PdfReader(path_to_case_pdf)
-
+    idx = 0
     # Group sources by page
     sources_by_page = defaultdict(list)
     for source in sources:
@@ -36,7 +36,7 @@ def create_annotated_pdf(path_to_case_pdf, query, sources, output_folder, width,
         can.setStrokeColor(red)
         can.setFillColor(red)
 
-        for idx, source in enumerate(page_sources):
+        for _, source in enumerate(page_sources):
             coordinates = eval(source.metadata['coordinates'])
             x1, y1 = coordinates[0]
             x2, y2 = coordinates[2]
@@ -49,7 +49,7 @@ def create_annotated_pdf(path_to_case_pdf, query, sources, output_folder, width,
             can.rect(x1_scaled, page_height - y2_scaled, x2_scaled - x1_scaled, y2_scaled - y1_scaled, stroke=1, fill=0)
             can.setFont("Helvetica", 12)
             can.drawString(x1_scaled, page_height - y1_scaled - 32, f"Question: {query} (Source {idx + 1})")
-
+            idx += 1
         can.save()
         packet.seek(0)
         new_pdf = PdfReader(packet)

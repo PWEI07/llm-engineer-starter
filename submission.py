@@ -30,7 +30,7 @@ if __name__ == '__main__':
                         required=True,
                         help='Path to local test case with which to run your code')
 
-    default_query = "what is the medical history of the patient's shoulder, when did it happen?"
+    default_query = "List all surgeries the patient underwent after January 1, 2023, including the type of surgery, the date, and any relevant details or outcomes."
     parser.add_argument('--query', type=str, default=default_query)
     parser.add_argument('--persist_directory', type=str, default=r'data/vector_db_inpatient')
     default_llm_path = r'/Users/peter_zirui_wei/PycharmProjects/llama.cpp/models/mistral-7b-instruct-v0.1.Q4_K_M.gguf'
