@@ -1,68 +1,19 @@
 import argparse
 from pathlib import Path
 from src.RAG import RAG
-from src.pdf import DocumentAI
-from PyPDF2 import PdfReader, PdfWriter
-from reportlab.pdfgen import canvas
-from reportlab.lib.colors import red
-from io import BytesIO
+from src.pdf import DocumentAI, create_annotated_pdf
 import os
 
 
-def create_annotated_pdf(path_to_case_pdf, query, source, output_folder, width, height):
-    reader = PdfReader(path_to_case_pdf)
-
-    page_number = source.metadata['page']
-    page = reader.pages[page_number - 1]  # PDF 页面索引从 0 开始
-    page_width = float(page.mediabox.width)
-    page_height = float(page.mediabox.height)
-    scale_x = page_width / width
-    scale_y = page_height / height
-
-    output = PdfWriter()
-    output.add_page(page)
-
-    packet = BytesIO()
-    can = canvas.Canvas(packet, pagesize=(page_width, page_height))
-    can.setStrokeColor(red)
-    can.setFillColor(red)
-
-    coordinates = eval(source.metadata['coordinates'])
-    x1, y1 = coordinates[0]
-    x2, y2 = coordinates[2]
-
-    x1_scaled = x1 * scale_x
-    y1_scaled = y1 * scale_y
-    x2_scaled = x2 * scale_x
-    y2_scaled = y2 * scale_y
-
-    can.rect(x1_scaled, page_height - y2_scaled, x2_scaled - x1_scaled, y2_scaled - y1_scaled, stroke=1, fill=0)
-
-    can.setFont("Helvetica", 12)
-    can.drawString(x1_scaled, page_height - y1_scaled - 32, f"Question: {query}")
-
-    can.save()
-
-    packet.seek(0)
-    new_pdf = PdfReader(packet)
-    page.merge_page(new_pdf.pages[0])
-
+def main(path_to_case_pdf: str, query: str, output_folder: str, *args, **kwargs):
+    # Ensure the output folder exists
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
-    output_path = os.path.join(output_folder, f"{query}.pdf")
-    with open(output_path, "wb") as output_file:
-        output.write(output_file)
-
-    print(f"Annotated PDF saved as: {output_path}")
-
-    import subprocess
-    subprocess.Popen([output_path], shell=True)
-
-# todo make the llm part optional. output folder, and the layout
-def main(path_to_case_pdf: str, query: str, *args, **kwargs):
+    kwargs['layout_output_file_path'] = os.path.join(output_folder, kwargs['layout_output_file_name'])
+    # generate layout aware text representation of the original document
     document_ai = DocumentAI()
-    layout, elements, width, height = document_ai(Path(path_to_case_pdf))
-
+    layout, elements, width, height = document_ai(Path(path_to_case_pdf), *args, **kwargs)  # below optional
+    # build vector database and set up RAG pipeline
     vector_db = document_ai.build_vector_db(elements, *args, **kwargs)
     rag = RAG(vector_db, *args, **kwargs)
     answer = rag.query(query)
@@ -84,6 +35,10 @@ if __name__ == '__main__':
     parser.add_argument('--persist_directory', type=str, default=r'data/vector_db_inpatient')
     default_llm_path = r'/Users/peter_zirui_wei/PycharmProjects/llama.cpp/models/mistral-7b-instruct-v0.1.Q4_K_M.gguf'
     parser.add_argument('--llm_path', type=str, default=default_llm_path)
+    parser.add_argument('--output_folder', type=str, default=r'output')
+    parser.add_argument('--layout_output_file_name', type=str, default=r'layout.txt')
+    default_embedding_model = 'BAAI/bge-large-en-v1.5'
+    parser.add_argument('--embedding_model', type=str, default=default_embedding_model)
 
     args = parser.parse_args()
     path_to_case_pdf = args.path_to_case_pdf

@@ -1,2 +1,8 @@
-google-cloud-documentai==2.27.0
+langchain==0.2.7
+langchain_community==0.2.7
+pydantic==2.8.2
+PyPDF2
 python-dotenv==1.0.1
+reportlab==4.2.2
+sentence_transformers==2.5.1
+unstructured==0.13.2
