@@ -19,7 +19,7 @@ def main(path_to_case_pdf: str, query: str, output_folder: str, *args, **kwargs)
     answer = rag.query(query)
     print(f"query:\n{query}\n\nanswer:\n{answer['result']}")
     output_folder = "output"
-    create_annotated_pdf(path_to_case_pdf, query, answer['source_documents'][0], output_folder, width, height)
+    create_annotated_pdf(path_to_case_pdf, query, answer['source_documents'], output_folder, width, height)
 
 
 if __name__ == '__main__':
